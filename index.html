@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>鸿蒙打卡 · 番茄专注与习惯养成</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --line: #262b35;
+    --text: #e8ecf3;
+    --sub: #8b95a7;
+    --accent: #2f7cf6;
+    --ok: #35c46b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "HarmonyOS Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(1200px 600px at 20% -10%, #1b2433 0%, var(--bg) 60%);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 28px 24px 22px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  }
+  .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+  .title { font-size: 17px; font-weight: 600; letter-spacing: .4px; }
+  .badge { font-size: 12px; color: var(--sub); border: 1px solid var(--line); padding: 4px 10px; border-radius: 999px; }
+  .clock { text-align: center; margin: 6px 0 20px; }
+  .time { font-size: 60px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 2px; }
+  .phase { font-size: 13px; color: var(--sub); margin-top: 6px; }
+  .ring { position: relative; width: 210px; height: 210px; margin: 4px auto 18px; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .num {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .ring .num .big { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ring .num .small { font-size: 12px; color: var(--sub); margin-top: 4px; }
+  .ctrl { display: flex; gap: 10px; margin-bottom: 20px; }
+  button {
+    flex: 1; border: none; border-radius: 14px; padding: 13px 0;
+    font-size: 15px; font-weight: 600; cursor: pointer; color: #fff;
+    background: var(--accent); transition: transform .12s ease, opacity .2s ease;
+    font-family: inherit;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+  .stat { background: #12151b; border: 1px solid var(--line); border-radius: 14px; padding: 12px; text-align: center; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 11px; color: var(--sub); }
+  .habits { border-top: 1px solid var(--line); padding-top: 16px; }
+  .habits h3 { font-size: 13px; color: var(--sub); font-weight: 500; margin-bottom: 10px; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 14px; }
+  .item input { width: 18px; height: 18px; accent-color: var(--ok); cursor: pointer; }
+  .item.done span { color: var(--sub); text-decoration: line-through; }
+  .tip { margin-top: 14px; font-size: 11px; color: var(--sub); text-align: center; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="head">
+    <div class="title">鸿蒙打卡</div>
+    <div class="badge" id="dateBadge">—</div>
+  </div>
+
+  <div class="ring">
+    <svg width="210" height="210">
+      <circle cx="105" cy="105" r="92" fill="none" stroke="#232833" stroke-width="10" />
+      <circle id="progress" cx="105" cy="105" r="92" fill="none" stroke="#2f7cf6" stroke-width="10"
+              stroke-linecap="round" stroke-dasharray="578" stroke-dashoffset="0" />
+    </svg>
+    <div class="num">
+      <div class="big" id="time">25:00</div>
+      <div class="small" id="phase">专注中</div>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <button id="startBtn">开始专注</button>
+    <button id="resetBtn" class="ghost">重置</button>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="count">0</b><span>今日番茄</span></div>
+    <div class="stat"><b id="minutes">0</b><span>累计分钟</span></div>
+    <div class="stat"><b id="streak">1</b><span>连续天数</span></div>
+  </div>
+
+  <div class="habits">
+    <h3>今日习惯</h3>
+    <div id="habitList"></div>
+  </div>
+
+  <div class="tip">数据保存在本机浏览器，无需联网 · 支持快捷键 空格开始/暂停、R 重置</div>
+</div>
+
+<script>
+(function () {
+  const FOCUS = 25 * 60;
+  const BREAK = 5 * 60;
+  const CIRC = 2 * Math.PI * 92;
+
+  const $ = (id) => document.getElementById(id);
+  let total = FOCUS;
+  let left = FOCUS;
+  let running = false;
+  let timer = null;
+  let isBreak = false;
+
+  const today = new Date();
+  const key = 'pomo_' + today.toISOString().slice(0, 10);
+  const state = JSON.parse(localStorage.getItem(key) || '{"count":0,"minutes":0,"habits":{}}');
+
+  const HABITS = ['早起打卡', '阅读 30 分钟', '运动 20 分钟', '写今日复盘'];
+  const habitList = $('habitList');
+  HABITS.forEach((name, i) => {
+    const row = document.createElement('label');
+    row.className = 'item' + (state.habits[i] ? ' done' : '');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!state.habits[i];
+    cb.addEventListener('change', () => {
+      state.habits[i] = cb.checked;
+      row.classList.toggle('done', cb.checked);
+      save();
+    });
+    const span = document.createElement('span');
+    span.textContent = name;
+    row.appendChild(cb);
+    row.appendChild(span);
+    habitList.appendChild(row);
+  });
+
+  function save() {
+    localStorage.setItem(key, JSON.stringify(state));
+    render();
+  }
+
+  function render() {
+    $('count').textContent = state.count;
+    $('minutes').textContent = state.minutes;
+    $('dateBadge').textContent = today.getMonth() + 1 + '月' + today.getDate() + '日';
+    const streakDays = Object.keys(localStorage).filter(k => k.startsWith('pomo_')).length;
+    $('streak').textContent = Math.max(1, streakDays);
+  }
+
+  function fmt(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function paint() {
+    $('time').textContent = fmt(left);
+    $('phase').textContent = isBreak ? '休息中' : '专注中';
+    const ratio = 1 - left / total;
+    $('progress').setAttribute('stroke-dashoffset', String(CIRC * ratio));
+    $('progress').setAttribute('stroke', isBreak ? '#35c46b' : '#2f7cf6');
+  }
+
+  function tick() {
+    left -= 1;
+    if (left <= 0) {
+      stop();
+      if (!isBreak) {
+        state.count += 1;
+        state.minutes += Math.round(total / 60);
+        save();
+        isBreak = true;
+        total = BREAK;
+        left = BREAK;
+        notify('专注完成，休息 5 分钟');
+      } else {
+        isBreak = false;
+        total = FOCUS;
+        left = FOCUS;
+        notify('休息结束，继续专注');
+      }
+      paint();
+      return;
+    }
+    paint();
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    $('startBtn').textContent = '暂停';
+    timer = setInterval(tick, 1000);
+  }
+
+  function stop() {
+    running = false;
+    clearInterval(timer);
+    timer = null;
+    $('startBtn').textContent = '开始专注';
+  }
+
+  function notify(msg) {
+    if (window.Notification && Notification.permission === 'granted') {
+      new Notification('鸿蒙打卡', { body: msg });
+    }
+  }
+
+  $('startBtn').addEventListener('click', () => {
+    if (running) { stop(); } else {
+      if (window.Notification && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      start();
+    }
+  });
+
+  $('resetBtn').addEventListener('click', () => {
+    stop();
+    isBreak = false;
+    total = FOCUS;
+    left = FOCUS;
+    paint();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') { e.preventDefault(); $('startBtn').click(); }
+    if (e.key === 'r' || e.key === 'R') { $('resetBtn').click(); }
+  });
+
+  render();
+  paint();
+})();
+</script>
+</body>
+</html>
